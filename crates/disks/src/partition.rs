@@ -50,6 +50,12 @@ impl Partition {
     /// * `Some(Partition)` if partition exists and is valid
     /// * `None` if partition doesn't exist or is invalid
     pub fn from_sysfs_path(sysroot: &Path, name: &str) -> Option<Self> {
+        let device = sysroot.join(DEVFS_DIR).join(name);
+        if !device.exists() {
+            log::debug!("Skipping partition {name}: no /dev node yet at {}", device.display());
+            return None;
+        }
+
         let node = sysroot.join(SYSFS_DIR).join(name);
         let partition_no: u32 = sysfs::read(&node, "partition")?;
         let start = sysfs::read(&node, "start")?;

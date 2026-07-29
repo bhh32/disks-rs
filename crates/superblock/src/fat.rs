@@ -115,15 +115,44 @@ impl Detection for Fat {
 }
 
 pub enum FatType {
+    Fat12,
     Fat16,
     Fat32,
 }
 
 impl Fat {
     pub fn fat_type(&self) -> FatType {
-        // this is how the linux kernel does it in https://github.com/torvalds/linux/blob/master/fs/fat/inode.c
+        // Linux kernel's primary FAT32 check.
         if self.fat_length == 0 && self.fat32().fat32_length != 0 {
-            FatType::Fat32
+            return FatType::Fat32;
+        }
+
+        // Estimate cluster count to distinguish between FAT12 and FAT16.
+        // For a 256 MiB ESP formatted FAT16, tis returns FAT16; for tiny
+        // (< 4 MiB) partitions it returns FAT12.
+        let total_sectors = if self.sectors == 0 {
+            self.total_sect.get()
+        } else {
+            self.sectors.get() as u32
+        };
+
+        let root_dir_sectors = ((self.dir_entries.get() as u32 * 32)
+            + (self.sector_size.get() as u32 - 1))
+            / self.sector_size.get() as u32;
+        let fat_size = if self.fat_length == 0 {
+            self.fat32().fat32_length.get()
+        } else {
+            self.fat_length.get() as u32
+        };
+        let data_sectors = total_sectors.saturating_sub(
+            (self._reserved.get() as u32)
+                + (self.fats as u32 * fat_size)
+                + root_dir_sectors,
+        );
+        let cluster_count = data_sectors / self.sec_per_clus.max(1) as u32;
+
+        if cluster_count < 4085 {
+            FatType::Fat12
         } else {
             FatType::Fat16
         }
@@ -132,7 +161,7 @@ impl Fat {
     /// Returns the filesystem id
     pub fn uuid(&self) -> Result<String, UnicodeError> {
         Ok(match self.fat_type() {
-            FatType::Fat16 => vol_id(self.fat16().common.vol_id),
+            FatType::Fat12 | FatType::Fat16 => vol_id(self.fat16().common.vol_id),
             FatType::Fat32 => vol_id(self.fat32().common.vol_id),
         })
     }
@@ -140,7 +169,7 @@ impl Fat {
     /// Returns the volume label
     pub fn label(&self) -> Result<String, UnicodeError> {
         match self.fat_type() {
-            FatType::Fat16 => vol_label(&self.fat16().common.vol_label),
+            FatType::Fat12 | FatType::Fat16 => vol_label(&self.fat16().common.vol_label),
             FatType::Fat32 => vol_label(&self.fat32().common.vol_label),
         }
     }

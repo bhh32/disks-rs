@@ -12,6 +12,7 @@ use gpt::{GptConfig, disk::LogicalBlockSize, mbr, partition_types};
 use std::{
     fs,
     io::{self, Seek, Write},
+    time::Duration,
 };
 use thiserror::Error;
 
@@ -240,6 +241,19 @@ impl<'a> DiskWriter<'a> {
             }
 
             blkpg::create_kernel_partitions(self.device.device(), block_size)?;
+
+            // udev creates /dev nodes asynchronously after BLKPG. Wait so
+            // the caller can format/mount with racing ENOENT.
+            for region in layout.iter() {
+                if let Some(id) = region.partition_id {
+                    let path = self.device.partition_path(id as usize);
+                    if let Some(name) = path.file_name().and_then(|name| name.to_str())
+                        && let Err(e) = disks::wait_for_dev_node(name, Duration::from_secs(5))
+                    {
+                        log::warn!("Parititon /dev/{name} did not appear after write: {e}");
+                    }
+                }
+            }
         }
 
         Ok(())

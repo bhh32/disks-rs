@@ -27,7 +27,7 @@ pub trait FilesystemExt {
 impl FilesystemExt for Filesystem {
     fn mkfs_command(&self) -> &str {
         match self {
-            Filesystem::Fat32 { .. } => "mkfs.fat",
+            Filesystem::Fat32 { .. } | Filesystem::Fat16 { .. } => "mkfs.fat",
             Filesystem::Standard { filesystem_type, .. } => match filesystem_type {
                 types::StandardFilesystemType::F2fs => "mkfs.f2fs",
                 types::StandardFilesystemType::Ext4 => "mkfs.ext4",
@@ -41,7 +41,7 @@ impl FilesystemExt for Filesystem {
 
     fn uuid_arg(&self) -> Vec<String> {
         match self {
-            Filesystem::Fat32 { volume_id, .. } => {
+            Filesystem::Fat32 { volume_id, .. } | Filesystem::Fat16 { volume_id, .. } => {
                 if let Some(id) = volume_id {
                     vec!["-i".to_string(), id.to_string()]
                 } else {
@@ -69,7 +69,7 @@ impl FilesystemExt for Filesystem {
 
     fn label_arg(&self) -> Vec<String> {
         match self {
-            Filesystem::Fat32 { label, .. } => {
+            Filesystem::Fat32 { label, .. } | Filesystem::Fat16 { label, .. } => {
                 if let Some(label) = label {
                     vec!["-n".to_string(), label.to_string()]
                 } else {
@@ -97,7 +97,7 @@ impl FilesystemExt for Filesystem {
 
     fn force_arg(&self) -> Vec<String> {
         match self {
-            Filesystem::Fat32 { .. } => vec![],
+            Filesystem::Fat32 { .. } | Filesystem::Fat16 { .. } => vec![],
             Filesystem::Standard { filesystem_type, .. } => match filesystem_type {
                 types::StandardFilesystemType::F2fs => vec!["-f".to_string()],
                 types::StandardFilesystemType::Ext4 => vec!["-F".to_string()],
@@ -113,6 +113,8 @@ impl FilesystemExt for Filesystem {
         match self {
             // Strategy says fat32, don't let mkfs.fat downgrade to FAT12/16
             Filesystem::Fat32 { .. } => vec!["-F".to_string(), "32".to_string()],
+            // Strategy says fat16, pini it so firmware gets exactly what it expects
+            Filesystem::Fat16 { .. } => vec!["-F".to_string(), "16".to_string()],
             Filesystem::Standard { filesystem_type, .. } => {
                 match filesystem_type {
                     // XFS online self-repair: parent pointers so xfs_scrub can rebuild
@@ -186,6 +188,19 @@ mod tests {
         assert_eq!(fs.mkfs_command(), "mkfs.fat");
         assert_eq!(fs.uuid_arg(), vec!["-i", "1234"]);
         assert_eq!(fs.label_arg(), vec!["-n", "BOOT"]);
+    }
+
+    #[test]
+    fn test_fat16_args() {
+        let fs = Filesystem::Fat16 {
+            label: Some("ESP".to_string()),
+            volume_id: Some(0xA1B2C3D4),
+        };
+
+        assert_eq!(fs.mkfs_command(), "mkfs.fat");
+        assert_eq!(fs.uuid_arg(), vec!["-i", "2712847316"]);
+        assert_eq!(fs.label_arg(), vec!["-n", "ESP"]);
+        assert_eq!(fs.variant_arg(), vec!["-F", "16"]);
     }
 
     #[test]

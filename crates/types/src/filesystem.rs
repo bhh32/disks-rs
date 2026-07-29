@@ -21,6 +21,14 @@ pub enum Filesystem {
         label: Option<String>,
         volume_id: Option<u32>,
     },
+    /// Used for the ESP on firmware that only supports FAT12/16
+    /// The installer pins FAT16 explicitly because it is the only variant
+    /// that is universally readable by UEFI firmware and still supports
+    /// VFAT long file names.
+    Fat16 {
+        label: Option<String>,
+        volume_id: Option<u32>,
+    },
     Standard {
         filesystem_type: StandardFilesystemType,
         label: Option<String>,
@@ -73,7 +81,7 @@ impl FromKdlProperty<'_> for StandardFilesystemType {
         let value = kdl_value_to_string(entry)?;
         let v = value.parse().map_err(|_| crate::UnsupportedValue {
             at: entry.span(),
-            advice: Some("'fat32', 'ext4', 'f2fs', 'xfs', 'btrfs', 'bcachefs', 'swap' are supported".into()),
+            advice: Some("'fat32', 'fat16', 'ext4', 'f2fs', 'xfs', 'btrfs', 'bcachefs', 'swap' are supported".into()),
         })?;
         Ok(v)
     }
@@ -109,21 +117,26 @@ impl Filesystem {
         })?;
 
         match fs_type.as_str() {
-            "fat32" => {
+            "fat32" | "fat16" => {
                 if uuid.is_some() {
                     return Err(crate::InvalidArguments {
                         at: node.span(),
-                        advice: Some("FAT32 does not support UUID".into()),
+                        advice: Some(format!("{fs_type} does not support UUID")),
                     }
                     .into());
                 }
-                Ok(Filesystem::Fat32 { label, volume_id })
+
+                if fs_type == "fat32" {
+                    Ok(Filesystem::Fat32 { label, volume_id })
+                } else {
+                    Ok(Filesystem::Fat16 { label, volume_id })
+                }
             }
             fs_type => {
                 if volume_id.is_some() {
                     return Err(crate::InvalidArguments {
                         at: node.span(),
-                        advice: Some(format!("volume_id is only supported for FAT32, not {fs_type}")),
+                        advice: Some(format!("volume_id is only supported for FAT32/FAT16, not {fs_type}")),
                     }
                     .into());
                 }

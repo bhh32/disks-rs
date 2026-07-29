@@ -83,6 +83,10 @@ where
     let res = unsafe { libc::ioctl(fd.as_raw_fd(), BLKPG as _, &mut ioctl) };
     if res < 0 {
         let err = io::Error::last_os_error();
+        if err.kind() == io::ErrorKind::AlreadyExists {
+            info!("Partition {partition_number} already present, treating as success");
+            return Ok(());
+        }
         error!("Partition creation failed: {err}");
         return Err(err);
     }

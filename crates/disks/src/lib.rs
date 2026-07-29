@@ -9,6 +9,8 @@ pub use sizing::*;
 use std::{
     fs, io,
     path::{Path, PathBuf},
+    thread,
+    time::{Duration, Instant},
 };
 
 pub use disk::*;
@@ -192,6 +194,21 @@ pub fn logical_block_size_of(device: &Path) -> u64 {
     };
 
     sysfs::read(&Path::new("/").join(SYSFS_DIR).join(name), "queue/logical_block_size").unwrap_or(SECTOR_SIZE)
+}
+
+pub fn wait_for_dev_node(name: &str, timeout: Duration) -> io::Result<PathBuf> {
+    let path = Path::new("/dev").join(name);
+    let start = Instant::now();
+    while !path.exists() {
+        if start.elapsed() >= timeout {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("/dev node did not appear in time: {}", path.display()),
+            ));
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+    Ok(path)
 }
 
 #[cfg(test)]
